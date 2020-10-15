@@ -63,13 +63,21 @@ def check_new_ticker():
 def buy_ticker(ticker):
     contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
     ib.qualifyContracts(*contracts)
+    print(contracts[0])
 
     order = LimitOrder('BUY', ticker.quantity, ticker.price)
+    try:
+        if ticker.buy_trade.order.orderId == order.orderId:
+            order.orderId += 1
+    except Exception as e:
+        print(e)
 
     trade = ib.placeOrder(contracts[0], order)
     ticker.buy_trade = trade
+    print(trade.log)
 
-    ib.sleep(1)
+    ib.sleep(4)
+    print(trade.log)
 
     return ticker
 
@@ -117,9 +125,10 @@ def check_buy_filled():
                 tickers[key].filled_time = tickers[key].buy_trade.log[-1].time
             else:
                 print("buy order not filled, lets update the price and buy again")
-                cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
-                tickers[key].buy_trade = cancel_trade
-                ib.sleep(2)
+                if not tickers[key].buy_trade.orderStatus.status == 'Cancelled':
+                    cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
+                    tickers[key].buy_trade = cancel_trade
+                    ib.sleep(2)
 
                 ticker = update_ticker(tickers[key])
                 tickers[key] = buy_ticker(ticker)

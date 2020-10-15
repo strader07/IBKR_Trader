@@ -5,7 +5,7 @@
 	"quant": 11,
 	"close": 200,
 	"exchange": "SMART",
-	"ticker": "AAPL",
+	"ticker": "MFG",
 	"volume": "11624",
 	"time": "2020-04-28T14:07:00Z",
 	"timenow": "2020-04-28T14:07:38Z"
