@@ -87,6 +87,22 @@ def sell_ticker(ticker):
     return ticker
 
 
+def update_ticker(ticker):
+
+    contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
+    ib.qualifyContracts(*contracts)
+    ib.reqMarketDataType(4)
+    for contract in contracts:
+        ib.reqMktData(contract, '', False, False)
+    ib.sleep(2)
+
+    tick = ib.ticker(contracts[0])
+    ib.sleep(2)
+    ticker.price = tick.marketPrice()
+
+    return ticker
+
+
 def check_buy_filled():
     print("=================== checking if buy order is filled...")
     for key in tickers.keys():
@@ -99,9 +115,14 @@ def check_buy_filled():
                 print("... just filled")
                 tickers[key].buy_filled = True
                 tickers[key].filled_time = tickers[key].buy_trade.log[-1].time
-            if tickers[key].buy_trade.orderStatus.status == 'Cancelled':
-                print("buy order has been cancelled, lets buy again")
-                tickers[key] = buy_ticker(tickers[key])
+            else:
+                print("buy order not filled, lets update the price and buy again")
+                cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
+                tickers[key].buy_trade = cancel_trade
+                ib.sleep(2)
+
+                ticker = update_ticker(tickers[key])
+                tickers[key] = buy_ticker(ticker)
 
     print("There are {} active trades...".format(str(num_trades(tickers))))
 
@@ -135,6 +156,9 @@ def check_timer_45():
 
                 if diff.seconds > 45*60:
                     print("{} is not sold for 45 mins, selling market order instead...")
+                    tickers[key].sell_trade = ib.cancelOrder(tickers[key].sell_trade.order)
+                    ib.sleep(2)
+
                     contracts = [Stock(tickers[key].symbol, tickers[key].exchange, 'USD')]
                     ib.qualifyContracts(*contracts)
 
@@ -161,7 +185,10 @@ def sell_leftovers():
         if tickers[key].buy_filled:
             if (tickers[key].sell_trade and tickers[key].sell_trade.orderStatus.status != "Filled") or not tickers[key].sell_trade:
                 print(key, ": not sold until the market close")
-                print("lets sell...")
+                print("lets cancel and sell at market price...")
+                tickers[key].sell_trade = ib.cancelOrder(tickers[key].sell_trade.order)
+                ib.sleep(2)
+
                 contracts = [Stock(tickers[key].symbol, tickers[key].exchange, 'USD')]
                 ib.qualifyContracts(*contracts)
 

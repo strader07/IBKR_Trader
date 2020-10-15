@@ -4,7 +4,7 @@ from config import PAPER_ACCOUNT, MAX_DOWN, TRAILING_PERC
 
 
 ib = IB()
-ib.connect('127.0.0.1', 7496, clientId=10)
+ib.connect('127.0.0.1', 7497, clientId=10)
 
 Dollar_Per_Thread = 1000.0
 accounts = ib.accountSummary(account=PAPER_ACCOUNT)
