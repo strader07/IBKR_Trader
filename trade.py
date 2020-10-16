@@ -32,7 +32,7 @@ def get_ticker():
     tick = ib.ticker(contracts[0])
     ib.sleep(2)
     entryTime = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-    price = tick.marketPrice()
+    price = round(tick.marketPrice(), 2)
     quantity = int(Dollar_Per_Thread/float(price))
 
     ticker = Tick(price, quantity, trigger['exchange'], trigger['ticker'], trigger['volume'], entryTime, trigger['time'])
@@ -63,7 +63,6 @@ def check_new_ticker():
 def buy_ticker(ticker):
     contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
     ib.qualifyContracts(*contracts)
-    print(contracts[0])
 
     order = LimitOrder('BUY', ticker.quantity, ticker.price)
     try:
@@ -74,10 +73,11 @@ def buy_ticker(ticker):
 
     trade = ib.placeOrder(contracts[0], order)
     ticker.buy_trade = trade
-    print(trade.log)
-
     ib.sleep(4)
-    print(trade.log)
+
+    if ticker.buy_trade.orderStatus.status == 'Filled' or ticker.buy_trade.orderStatus.filled == ticker.quantity:
+        ticker.buy_filled = True
+        ticker.filled_time = ticker.buy_trade.log[-1].time
 
     return ticker
 
@@ -106,26 +106,30 @@ def update_ticker(ticker):
 
     tick = ib.ticker(contracts[0])
     ib.sleep(2)
-    ticker.price = tick.marketPrice()
+    ticker.price = round(tick.marketPrice(), 2)
+    if ticker.buy_trade:
+        if ticker.buy_trade.orderStatus.filled > 0:
+            print("Order partially filled... Updating the buy quantity with the remainder...")
+            ticker.quantity = int(ticker.quantity - int(ticker.buy_trade.orderStatus.filled))
 
     return ticker
 
 
 def check_buy_filled():
-    print("=================== checking if buy order is filled...")
+    print("======================= checking if buy order is filled...")
     for key in tickers.keys():
         if tickers[key].buy_filled:
             print(key, "=> buy order already filled")
             continue
         else:
-            print(key, ": buy order status=> ", tickers[key].buy_trade.orderStatus.status)
+            print(key, ": buy order status => ", tickers[key].buy_trade.orderStatus.status)
             if tickers[key].buy_trade.orderStatus.status == 'Filled':
                 print("... just filled")
                 tickers[key].buy_filled = True
                 tickers[key].filled_time = tickers[key].buy_trade.log[-1].time
             else:
                 print("buy order not filled, lets update the price and buy again")
-                if not tickers[key].buy_trade.orderStatus.status == 'Cancelled':
+                if tickers[key].buy_trade.orderStatus.status != 'Cancelled':
                     cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
                     tickers[key].buy_trade = cancel_trade
                     ib.sleep(2)
@@ -155,6 +159,8 @@ def check_timer_45():
     print("======================= checking if a trade lasts for more than 45 mins...")
     if len(tickers.keys()) < 1:
         print("No trades have been made yet")
+
+    del_keys = []
 
     for key in tickers.keys():
         if tickers[key].buy_filled:
@@ -187,6 +193,14 @@ def check_timer_45():
 
                 trade = ib.placeOrder(contracts[0], order)
                 tickers[key].sell_trade = trade
+
+            # if sold, remove the ticker from dictionary, so we can buy that again if the ticker comes again
+            if tickers[key].sell_trade:
+                if tickers[key].sell_trade.orderStatus.status == "Filled":
+                    del_keys.append(key)
+
+    for key in del_keys:
+        del tickers[key]
 
 
 def sell_leftovers():
