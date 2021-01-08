@@ -10,6 +10,8 @@ import time
 
 global tickers
 tickers = SortedDict()
+BUY = 1
+SELL = 2
 
 
 def get_ticker(symbol, exchange):
@@ -41,7 +43,7 @@ def get_current_price(symbol, exchange):
 
     tick = ib.ticker(contracts[0])
     ib.sleep(2)
-    price = round(tick.marketPrice(), 2)
+    price = tick.marketPrice() // 0.01 / 100
 
     return price
 
@@ -55,7 +57,7 @@ def check_trigger():
         print("There are 50 concurrent trades in use now.")
         return None
 
-    print("======================= checking if there is a new ticker...")
+    print("\n============ Checking a new trigger...")
 
     with open('trigger/trigger.json') as f:
         trigger = json.load(f)
@@ -65,29 +67,29 @@ def check_trigger():
     signal = trigger['signal']
     key = symbol
 
-    if key not in tickers.keys() and signal==1:
+    if key not in tickers.keys() and signal==BUY:
         print("Hey, there comes a new ticker...")
         ticker = get_ticker(symbol, exchange)
         tickers[key] = ticker
         tickers[key] = buy_ticker(ticker)
         return None
 
-    if signal==1 and key in tickers.keys():
+    if signal==BUY and key in tickers.keys():
         print("New ticker not found")
         return None
 
-    if signal==2 and key not in tickers.keys():
-        print(f"Sell signal detected, but {key} is not in trade. Skip selling...")
+    if signal==SELL and key not in tickers.keys():
+        print(f"Sell signal, but {key} is not in trade. Skip selling...")
         return None
 
-    if signal==2 and key in tickers.keys() and not tickers[key].buy_filled:
-        print(f"Sell signal detected, but {key} buy order is not filled. Skip selling and cancel the order...")
+    if signal==SELL and key in tickers.keys() and not tickers[key].buy_filled:
+        print(f"Sell signal, but {key} buy order is not filled. Skip selling and cancel the order...")
         cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
         ib.sleep(2)
         del tickers[key]
         return None
 
-    if signal==2 and tickers[key].buy_filled and not tickers[key].sell_trade:
+    if signal==SELL and tickers[key].buy_filled and not tickers[key].sell_trade:
         print(f"Selling {key}...")
         ticker = tickers[key]
         tickers[key] = sell_ticker(ticker)
@@ -114,12 +116,15 @@ def buy_ticker(ticker):
     return ticker
 
 
-def sell_ticker(ticker):
+def sell_ticker(ticker, price=None):
     contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
     ib.qualifyContracts(*contracts)
 
-    price = get_current_price(ticker.symbol, ticker.exchange)
-    order = LimitOrder('SELL', ticker.quantity, price)
+    if not price:
+        limitPrice = get_current_price(ticker.symbol, ticker.exchange)
+    else:
+        limitPrice = price
+    order = LimitOrder('SELL', ticker.quantity, limitPrice)
     try:
         if ticker.sell_trade.order.orderId == order.orderId:
             order.orderId += 1
@@ -133,79 +138,60 @@ def sell_ticker(ticker):
     return ticker
 
 
-def update_ticker(ticker, direction):
-    contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
-    ib.qualifyContracts(*contracts)
-    ib.reqMarketDataType(4)
-    for contract in contracts:
-        ib.reqMktData(contract, '', False, False)
-    ib.sleep(2)
-    tick = ib.ticker(contracts[0])
-    ib.sleep(2)
-
-    ticker.price = round(tick.marketPrice(), 2)
-    if direction=="BUY":
-        if ticker.buy_trade:
-            if ticker.buy_trade.orderStatus.filled > 0:
-                print("Order partially filled... Updating the buy quantity with the remainder...")
-                ticker.quantity = int(ticker.quantity - int(ticker.buy_trade.orderStatus.filled))
-    if direction=="SELL":
-        if ticker.sell_trade:
-            if ticker.sell_trade.orderStatus.filled > 0:
-                print("Order partially filled... Updating the sell quantity with the remainder...")
-                ticker.quantity = int(ticker.quantity - int(ticker.sell_trade.orderStatus.filled))
-
-    return ticker
-
-
-def check_buy_filled():
-    print("======================= checking if buy order is filled...")
-    for key in tickers.keys():
-        if tickers[key].buy_filled:
-            print(key, "=> buy order already filled")
-            continue
-        else:
-            print(key, ": buy order status => ", tickers[key].buy_trade.orderStatus.status)
-            if tickers[key].buy_trade.orderStatus.status == 'Filled':
-                print("... just filled")
-                tickers[key].buy_filled = True
-                tickers[key].filled_time = tickers[key].buy_trade.log[-1].time
-            else:
-                print("buy order not filled, lets cancel it, update the price and buy again")
-                if tickers[key].buy_trade.orderStatus.status != 'Cancelled':
-                    cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
-                    tickers[key].buy_trade = cancel_trade
-                    ib.sleep(2)
-
-                ticker = update_ticker(tickers[key], "BUY")
-                tickers[key] = buy_ticker(ticker)
-
-    print("There are {} active trades...".format(str(num_trades(tickers))))
-
-
-def check_sell_filled():
-    print("======================= checking if sell order is filled...")
+def check_order_filled():
+    print("\n============ Checking buy/sell order status...")
     if len(tickers.keys()) < 1:
         print("No trades have been made yet")
+        return None
 
     del_keys = []
     for key in tickers.keys():
+        buy_status = tickers[key].buy_trade.orderStatus.status
+        if buy_status == 'Filled':
+            tickers[key].buy_filled = True
+        else:
+            print(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
+            continue
         if tickers[key].buy_filled:
             if tickers[key].sell_trade:
-                if tickers[key].sell_trade.orderStatus.status == "Filled":
+                sell_status = tickers[key].sell_trade.orderStatus.status
+                if sell_status == "Filled":
+                    tickers[key].sell_filled = True
                     del_keys.append(key)
+                    print(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
                 else:
-                    print("sell order not filled, lets cancel it, update the price and sell again")
-                    if tickers[key].sell_trade.orderStatus.status != 'Cancelled':
-                        cancel_trade = ib.cancelOrder(tickers[key].sell_trade.order)
-                        tickers[key].sell_trade = cancel_trade
-                        ib.sleep(2)
-                    ticker = update_ticker(tickers[key], "SELL")
-                    tickers[key] = sell_ticker(ticker)
+                    print(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
+                continue
+            print(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
+            continue
 
     for key in del_keys:
-        print(f"{key} has been sold. Removing {key} from dictionary...")
+        print(f"{key} has been sold. Removing {key} from ticker dictionary...")
         del tickers[key]
+
+    print("There are {} active trades!".format(str(num_trades(tickers))))
+
+
+def check_to_sell_by_pricechange():
+    print("\n============ Checking sell by price change...")
+    for key in tickers.keys():
+        if tickers[key].buy_filled:
+            try:
+                if tickers[key].sell_trade.orderStatus.status != "Filled":
+                    print(f"{key}: sell already triggered.")
+                    continue
+            except:
+                pass
+
+            price_now = get_current_price(tickers[key].symbol, tickers[key].exchange)
+            price_fill = tickers[key].buy_trade.orderStatus.avgFillPrice
+            price_chng = int((price_now - price_fill)*100/price_fill)
+            if price_chng <= -3:
+                print(f"{key} - price going down by (3%) below the fill price. Sell it.")
+                ticker = tickers[key]
+                tickers[key] = sell_ticker(ticker, price_now)
+                continue
+            print(f"{key} - price change: {price_chng} %")
 
 
 def sell_leftovers():
@@ -229,19 +215,33 @@ def sell_leftovers():
 
 
 def trade():
+    rth = True
     while True:
         now = datetime.now()
         current_time = now.strftime("%H:%M")
-        if current_time < "07:30" or current_time > "15:55":
-            if current_time > "15:55":
-                sell_leftovers()
+        if current_time < "07:30":
+            print("Market is not open!")
+            print(f"Current time: {datetime.now()}\n")
+            time.sleep(60)
+            continue
+        if current_time > "15:59" and rth==True:
+            print("End of regular trading hours!")
+            sell_leftovers()
+            rth = False
+            print("Start trading extended hours!")
+        if current_time > "19:59":
+            print("End of the day trading. Close all open positions!")
+            sell_leftovers()
+            print("Closing the program.")
             break
 
-        print("\ncurrent time: ", datetime.now())
+        print("\n\n************ Time: ", datetime.now(), " ***********")
 
-        check_sell_filled()
-        check_buy_filled()
+        check_order_filled()
+        check_to_sell_by_pricechange()
         check_trigger()
+
+        print("\n**************************** * ****************************")
         time.sleep(1)
 
 
