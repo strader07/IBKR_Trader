@@ -185,10 +185,15 @@ class LimitOrder(Order):
 
 class MidPriceOrder(Order):
 
-    def __init__(self, action, totalQuantity, lmtPrice, **kwargs):
-        Order.__init__(
-            self, orderType='MIDPRICE', action=action,
-            totalQuantity=totalQuantity, lmtPrice=lmtPrice, **kwargs)
+    def __init__(self, action, totalQuantity, limitPrice=None, **kwargs):
+        if not limitPrice:
+            Order.__init__(
+                self, orderType='MIDPRICE', action=action,
+                totalQuantity=totalQuantity, **kwargs)
+        else:
+            Order.__init__(
+                self, orderType='MIDPRICE', action=action,
+                totalQuantity=totalQuantity, limitPrice=limitPrice, **kwargs)
 
 
 class MarketOrder(Order):
