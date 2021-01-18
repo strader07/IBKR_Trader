@@ -62,7 +62,7 @@ def check_trigger():
     with open('trigger/trigger.json') as f:
         trigger = json.load(f)
 
-    symbol = trigger['ticker']
+    symbol = trigger['ticker'].split(".")[0].upper()
     exchange = trigger['exchange']
     signal = trigger['signal']
     key = symbol
@@ -99,7 +99,7 @@ def buy_ticker(ticker):
     contracts = [Stock(ticker.symbol, ticker.exchange, 'USD')]
     ib.qualifyContracts(*contracts)
 
-    order = LimitOrder('BUY', ticker.quantity, ticker.price)
+    order = MidPriceOrder('BUY', ticker.quantity, ticker.price)
     try:
         if ticker.buy_trade.order.orderId == order.orderId:
             order.orderId += 1
@@ -124,7 +124,7 @@ def sell_ticker(ticker, price=None):
         limitPrice = get_current_price(ticker.symbol, ticker.exchange)
     else:
         limitPrice = price
-    order = LimitOrder('SELL', ticker.quantity, limitPrice)
+    order = MidPriceOrder('SELL', ticker.quantity, limitPrice)
     try:
         if ticker.sell_trade.order.orderId == order.orderId:
             order.orderId += 1

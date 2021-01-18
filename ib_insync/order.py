@@ -11,7 +11,7 @@ from .util import UNSET_DOUBLE, UNSET_INTEGER, dataclassNonDefaults
 
 __all__ = (
     'Trade Order OrderStatus OrderState OrderComboLeg '
-    'LimitOrder MarketOrder StopOrder StopLimitOrder BracketOrder TrailingStopOrder '
+    'LimitOrder MidPriceOrder MarketOrder StopOrder StopLimitOrder BracketOrder TrailingStopOrder '
     'OrderCondition ExecutionCondition MarginCondition TimeCondition '
     'PriceCondition PercentChangeCondition VolumeCondition').split()
 
@@ -180,6 +180,14 @@ class LimitOrder(Order):
     def __init__(self, action, totalQuantity, lmtPrice, **kwargs):
         Order.__init__(
             self, orderType='LMT', action=action,
+            totalQuantity=totalQuantity, lmtPrice=lmtPrice, **kwargs)
+
+
+class MidPriceOrder(Order):
+
+    def __init__(self, action, totalQuantity, lmtPrice, **kwargs):
+        Order.__init__(
+            self, orderType='MIDPRICE', action=action,
             totalQuantity=totalQuantity, lmtPrice=lmtPrice, **kwargs)
 
 
