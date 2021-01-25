@@ -163,9 +163,11 @@ def sell_ticker(ticker, price=None):
 def check_order_filled():
     print("\n============ Checking buy/sell order status...")
     logging.info(f"\n============ Checking buy/sell order status...")
+    ib.reqExecutions()
+
     if len(tickers.keys()) < 1:
-        print("No trades have been made yet")
-        logging.info(f"No trades have been made yet")
+        print("No trades in the queue")
+        logging.info(f"No trades in the queue")
         return None
 
     del_keys = []
@@ -194,6 +196,10 @@ def check_order_filled():
             continue
 
     for key in del_keys:
+        contract = tickers[key].buy_trade.contract
+        print(f"Canceling market data subscription for {key}")
+        ib.cancelMktData(contract)
+
         print(f"{key} has been sold. Removing {key} from ticker dictionary...")
         logging.info(f"{key} has been sold. Removing {key} from ticker dictionary...")
         del tickers[key]
@@ -214,6 +220,11 @@ def check_to_sell_by_pricechange():
                     continue
             except:
                 pass
+
+            if tickers[key].sell_trade:
+                print(f"{key}: sell already triggered.")
+                logging.info(f"{key}: sell already triggered.")
+                continue
 
             price_now = get_current_price(tickers[key].symbol, tickers[key].exchange)
             price_fill = tickers[key].buy_trade.orderStatus.avgFillPrice
