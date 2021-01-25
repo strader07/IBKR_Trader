@@ -7,6 +7,9 @@ from sortedcontainers import SortedDict
 from datetime import date, datetime
 from pytz.reference import Eastern
 import time
+import logging
+
+logging.basicConfig(filename="logs/tradelog.txt", format='[%(asctime)s] %(levelname)s : %(message)s', level=logging.DEBUG)
 
 global tickers
 tickers = SortedDict()
@@ -22,11 +25,21 @@ def get_ticker(symbol, exchange):
         ib.reqMktData(contract, '', False, False)
     ib.sleep(2)
 
-    tick = ib.ticker(contracts[0])
+    try:
+        tick = ib.ticker(contracts[0])
+    except Exception as e:
+        print(f"{symbol}: Get ticker error - {e}")
+        logging.error(f"{symbol}: Get ticker error - {e}")
+        return None
     ib.sleep(2)
     entryTime = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     price = round(tick.marketPrice(), 2)
-    quantity = int(Dollar_Per_Thread/float(price))
+    try:
+        quantity = int(Dollar_Per_Thread/float(price))
+    except Exception as e:
+        print(f"{symbol}: Get ticker error - {e}")
+        logging.error(f"{symbol}: Get ticker error - {e}")
+        return None
 
     ticker = Tick(price, quantity, exchange, symbol, entryTime)
 
@@ -55,16 +68,19 @@ def num_trades(tickers):
 def check_trigger():
     if num_trades(tickers) >= 50:
         print("There are 50 concurrent trades in use now.")
+        logging.info(f"There are 50 concurrent trades in use now.")
         return None
 
     print("\n============ Checking a new trigger...")
+    logging.info(f"\n============ Checking a new trigger...")
 
     with open('trigger/trigger.json') as f:
         trigger = json.load(f)
 
-    symbol = trigger['ticker']
+    symbol = trigger['ticker'].upper()
     if "." in symbol:
         print(f"Discarding {symbol}...")
+        logging.info(f"Discarding {symbol}...")
         return None
     exchange = trigger['exchange']
     signal = trigger['signal']
@@ -72,21 +88,27 @@ def check_trigger():
 
     if key not in tickers.keys() and signal==BUY:
         print("Hey, there comes a new ticker...")
+        logging.info("Hey, there comes a new ticker...")
         ticker = get_ticker(symbol, exchange)
+        if not ticker:
+            return None
         tickers[key] = ticker
         tickers[key] = buy_ticker(ticker)
         return None
 
     if signal==BUY and key in tickers.keys():
         print("New ticker not found")
+        logging.info("New ticker not found")
         return None
 
     if signal==SELL and key not in tickers.keys():
         print(f"Sell signal, but {key} is not in trade. Skip selling...")
+        logging.info(f"Sell signal, but {key} is not in trade. Skip selling...")
         return None
 
     if signal==SELL and key in tickers.keys() and not tickers[key].buy_filled:
         print(f"Sell signal, but {key} buy order is not filled. Skip selling and cancel the order...")
+        logging.info(f"Sell signal, but {key} buy order is not filled. Skip selling and cancel the order...")
         cancel_trade = ib.cancelOrder(tickers[key].buy_trade.order)
         ib.sleep(2)
         del tickers[key]
@@ -94,6 +116,7 @@ def check_trigger():
 
     if signal==SELL and tickers[key].buy_filled and not tickers[key].sell_trade:
         print(f"Selling {key}...")
+        logging.info(f"Selling {key}...")
         ticker = tickers[key]
         tickers[key] = sell_ticker(ticker)
 
@@ -139,8 +162,10 @@ def sell_ticker(ticker, price=None):
 
 def check_order_filled():
     print("\n============ Checking buy/sell order status...")
+    logging.info(f"\n============ Checking buy/sell order status...")
     if len(tickers.keys()) < 1:
         print("No trades have been made yet")
+        logging.info(f"No trades have been made yet")
         return None
 
     del_keys = []
@@ -150,6 +175,7 @@ def check_order_filled():
             tickers[key].buy_filled = True
         else:
             print(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
+            logging.info(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
             continue
         if tickers[key].buy_filled:
             if tickers[key].sell_trade:
@@ -158,26 +184,33 @@ def check_order_filled():
                     tickers[key].sell_filled = True
                     del_keys.append(key)
                     print(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
+                    logging.info(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
                 else:
                     print(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
+                    logging.info(f"{key} || Buy: {buy_status} || Sell: {sell_status}")
                 continue
             print(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
+            logging.info(f"{key} || Buy: {buy_status} || Sell: Not Triggered")
             continue
 
     for key in del_keys:
         print(f"{key} has been sold. Removing {key} from ticker dictionary...")
+        logging.info(f"{key} has been sold. Removing {key} from ticker dictionary...")
         del tickers[key]
 
-    print("There are {} active trades!".format(str(num_trades(tickers))))
+    print(f"There are {num_trades(tickers)} active trades!")
+    logging.info(f"There are {num_trades(tickers)} active trades!")
 
 
 def check_to_sell_by_pricechange():
     print("\n============ Checking sell by price change...")
+    logging.info(f"\n============ Checking sell by price change...")
     for key in tickers.keys():
         if tickers[key].buy_filled:
             try:
-                if tickers[key].sell_trade.orderStatus.status != "Filled":
+                if tickers[key].sell_trade.orderStatus.status == "Filled":
                     print(f"{key}: sell already triggered.")
+                    logging.info(f"{key}: sell already triggered.")
                     continue
             except:
                 pass
@@ -186,11 +219,13 @@ def check_to_sell_by_pricechange():
             price_fill = tickers[key].buy_trade.orderStatus.avgFillPrice
             price_chng = int((price_now - price_fill)*100/price_fill)
             if price_chng <= -3:
-                print(f"{key} - price going down by (3%) below the fill price. Sell it.")
+                print(f"{key} - price going down by (3%) below the fill price. Selling {key}...")
+                logging.info(f"{key} - price going down by (3%) below the fill price. Selling {key}...")
                 ticker = tickers[key]
                 tickers[key] = sell_ticker(ticker, price_now)
                 continue
             print(f"{key} - price change: {price_chng} %")
+            logging.info(f"{key} - price change: {price_chng} %")
 
 
 def sell_leftovers():
@@ -198,7 +233,9 @@ def sell_leftovers():
         if tickers[key].buy_filled:
             if (tickers[key].sell_trade and tickers[key].sell_trade.orderStatus.status != "Filled") or not tickers[key].sell_trade:
                 print(key, ": not sold until the market close")
+                logging.info(f"{key}: not sold until the market close")
                 print("lets cancel and sell at market price...")
+                logging.info("lets cancel and sell at market price...")
                 tickers[key].sell_trade = ib.cancelOrder(tickers[key].sell_trade.order)
                 ib.sleep(2)
 
@@ -215,24 +252,31 @@ def sell_leftovers():
 
 def trade():
     rth = True
+    print("Before start trading, make sure there are no active orders!")
+    sell_leftovers()
     while True:
         now = datetime.now()
         current_time = now.strftime("%H:%M")
         if current_time < "07:30":
             print("Market is not open!")
+            logging.info(f"\n============ Checking a new trigger...")
             print(f"Current time: {datetime.now()}\n")
             time.sleep(60)
             continue
+        if current_time > "19:59":
+            print("End of the day trading. Close all open positions!")
+            logging.info(f"\n============ Checking a new trigger...")
+            sell_leftovers()
+            print("Closing the program.")
+            logging.info("Closing the program.")
+            break
         if current_time > "15:59" and rth==True:
             print("End of regular trading hours!")
+            logging.info("End of regular trading hours!")
             sell_leftovers()
             rth = False
             print("Start trading extended hours!")
-        if current_time > "19:59":
-            print("End of the day trading. Close all open positions!")
-            sell_leftovers()
-            print("Closing the program.")
-            break
+            logging.info(f"Start trading extended hours!")
 
         print("\n\n************ Time: ", datetime.now(), " ***********")
 
@@ -241,6 +285,7 @@ def trade():
         check_trigger()
 
         print("\n**************************** * ****************************")
+        logging.info("\n**************************** * ****************************")
         time.sleep(1)
 
 
