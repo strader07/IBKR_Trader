@@ -242,6 +242,11 @@ def check_to_sell_by_pricechange():
             except:
                 pass
 
+            if tickers[key].sell_trade:
+                print(f"{key}: sell already triggered.")
+                logging.info(f"{key}: sell already triggered.")
+                continue
+
             price_now = get_current_price(tickers[key].symbol, tickers[key].exchange)
             price_fill = tickers[key].buy_trade.orderStatus.avgFillPrice
             price_chng = int((price_now - price_fill)*100/price_fill)
